@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="description" content="Find the tasks you keep carrying between weekly to-do lists and decide: commit, schedule, or kill.">
 <title>Loop Breaker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233f3a32'/%3E%3Cpath d='M11 16a5 5 0 1 1 5 5' fill='none' stroke='%23f4f3f0' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M9 13l2 3 3-2' fill='none' stroke='%23b23b32' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #f4f3f0;
@@ -11,12 +14,16 @@
     --ink: #23211d;
     --muted: #6c675e;
     --line: #ddd9d1;
+    --field: #fbfaf8;
     --accent: #3f3a32;
+    --accent-hover: #2c2822;
     --commit: #2f7a45;
     --schedule: #b5760d;
     --kill: #b23b32;
+    --focus: #6b8afd;
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
     background: var(--bg);
@@ -24,106 +31,151 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.55;
   }
-  .wrap {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 48px 20px 80px;
-  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 48px 20px 72px; }
   h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .subtitle { color: var(--muted); margin: 0 0 36px; }
-  h2 { font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 16px; }
+  .subtitle { color: var(--muted); margin: 0 0 28px; max-width: 60ch; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 14px; }
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 30px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .dot.commit { background: var(--commit); }
+  .dot.schedule { background: var(--schedule); }
+  .dot.kill { background: var(--kill); }
   .week {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 9px;
     padding: 16px;
     margin-bottom: 14px;
   }
   .week-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .week-head input { flex: 1; }
   input, textarea {
     width: 100%;
     font: inherit;
     color: var(--ink);
-    background: #fbfaf8;
+    background: var(--field);
     border: 1px solid var(--line);
     border-radius: 6px;
     padding: 9px 11px;
   }
-  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
-  textarea { resize: vertical; min-height: 96px; }
-  .week-head input { flex: 1; }
+  textarea { resize: vertical; min-height: 104px; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+    border-color: transparent;
+  }
   button {
     font: inherit;
     cursor: pointer;
     border: 1px solid var(--line);
-    background: #fbfaf8;
+    background: var(--field);
     color: var(--ink);
     border-radius: 6px;
     padding: 7px 13px;
   }
   button:hover { border-color: var(--accent); }
   button:disabled { opacity: 0.55; cursor: default; }
-  .remove { padding: 7px 11px; color: var(--muted); }
-  .row { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+  .remove { color: var(--muted); padding: 7px 12px; }
+  .controls { display: flex; align-items: center; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
   .analyze {
-    margin-top: 8px;
     background: var(--accent);
-    color: #fbfaf8;
+    color: var(--field);
     border-color: var(--accent);
-    padding: 11px 22px;
+    padding: 11px 24px;
     font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
   }
-  .analyze:hover { background: #2c2822; }
-  #results { margin-top: 44px; }
+  .analyze:hover:not(:disabled) { background: var(--accent-hover); }
+  .hint { color: var(--muted); font-size: 13px; }
+  .spinner {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+  #results { margin-top: 40px; }
   .summary {
     font-size: 18px;
     border-left: 3px solid var(--accent);
-    padding: 4px 0 4px 14px;
+    padding: 3px 0 3px 14px;
     margin-bottom: 22px;
   }
+  .count { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 9px;
     padding: 16px 18px;
     margin-bottom: 14px;
   }
-  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
   .task-text { font-weight: 600; flex: 1; }
   .seen { color: var(--muted); font-size: 13px; white-space: nowrap; }
   .badge {
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    padding: 3px 9px;
-    border-radius: 100px;
-    color: #fff;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 3px 9px; border-radius: 100px; color: #fff; white-space: nowrap;
   }
   .badge.COMMIT { background: var(--commit); }
   .badge.SCHEDULE { background: var(--schedule); }
   .badge.KILL { background: var(--kill); }
   .reasoning { margin: 0 0 8px; }
-  .next-step { color: var(--muted); font-size: 14px; }
+  .next-step { color: var(--muted); font-size: 14px; margin: 0; }
   .next-step strong { color: var(--ink); }
-  .message { color: var(--kill); margin-top: 20px; }
+  .message {
+    margin-top: 18px; padding: 11px 14px; border-radius: 7px;
+    background: #f7e7e5; color: #8f2b23; border: 1px solid #e6c4c0;
+  }
+  .empty { color: var(--muted); }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
   .hidden { display: none; }
+  @media (max-width: 520px) {
+    .wrap { padding: 32px 16px 56px; }
+    .week-head { flex-wrap: wrap; }
+    .week-head input { flex-basis: 100%; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Loop Breaker</h1>
-  <p class="subtitle">Paste your recent weekly to-do lists. It finds the tasks you keep dragging forward and makes you decide: commit, schedule, or kill.</p>
+  <header>
+    <h1>Loop Breaker</h1>
+    <p class="subtitle">Paste your recent weekly to-do lists. It finds the tasks you keep dragging forward and makes you decide: commit, schedule, or kill.</p>
+    <div class="legend" aria-hidden="true">
+      <span><span class="dot commit"></span>Commit, needs a first step</span>
+      <span><span class="dot schedule"></span>Schedule, needs a time</span>
+      <span><span class="dot kill"></span>Kill, let it go</span>
+    </div>
+  </header>
 
-  <h2>Your recent weeks</h2>
-  <div id="weeks"></div>
-  <div class="row">
-    <button id="add-week" type="button">Add week</button>
-  </div>
+  <main>
+    <h2 id="weeks-heading">Your recent weeks</h2>
+    <div id="weeks" role="group" aria-labelledby="weeks-heading"></div>
 
-  <button id="analyze" class="analyze" type="button">Analyze</button>
+    <div class="controls">
+      <button id="add-week" type="button">Add week</button>
+    </div>
 
-  <div id="results" class="hidden"></div>
-  <p id="message" class="message hidden"></p>
+    <div class="controls">
+      <button id="analyze" class="analyze" type="button">
+        <span id="analyze-label">Analyze</span>
+      </button>
+      <span class="hint">or press Cmd/Ctrl + Enter</span>
+    </div>
+
+    <p id="message" class="message hidden" role="alert"></p>
+    <section id="results" class="hidden" aria-live="polite" aria-label="Analysis results"></section>
+  </main>
+
+  <footer>Runs on AWS Lambda and Amazon Bedrock Nova Micro. Nothing is stored.</footer>
 </div>
 
 <script>
@@ -131,31 +183,42 @@
   const resultsEl = document.getElementById("results");
   const messageEl = document.getElementById("message");
   const analyzeBtn = document.getElementById("analyze");
+  const analyzeLabel = document.getElementById("analyze-label");
+
+  let weekCounter = 0;
 
   function weekBlock(labelPlaceholder) {
+    weekCounter += 1;
+    const id = weekCounter;
     const block = document.createElement("div");
     block.className = "week";
     block.innerHTML =
       '<div class="week-head">' +
-      '<input class="label" type="text" placeholder="' + labelPlaceholder + '">' +
-      '<button class="remove" type="button">Remove</button>' +
+      '<label class="visually-hidden" for="label-' + id + '">Week label</label>' +
+      '<input class="label" id="label-' + id + '" type="text" autocomplete="off" placeholder="' + labelPlaceholder + '">' +
+      '<button class="remove" type="button" aria-label="Remove this week">Remove</button>' +
       '</div>' +
-      '<textarea class="tasks" placeholder="One task per line&#10;finish thesis chapter 3&#10;email professor about defense date"></textarea>';
+      '<label class="visually-hidden" for="tasks-' + id + '">Tasks for this week, one per line</label>' +
+      '<textarea class="tasks" id="tasks-' + id + '" placeholder="One task per line&#10;finish thesis chapter 3&#10;email professor about defense date"></textarea>';
     block.querySelector(".remove").addEventListener("click", function () {
       if (weeksEl.children.length > 1) {
         block.remove();
+      } else {
+        block.querySelector(".label").value = "";
+        block.querySelector(".tasks").value = "";
       }
     });
     return block;
   }
 
-  const placeholders = ["Week of Jun 22", "Week of Jun 29", "Week of Jul 6"];
-  placeholders.forEach(function (p) {
+  ["Week of Jun 22", "Week of Jun 29", "Week of Jul 6"].forEach(function (p) {
     weeksEl.appendChild(weekBlock(p));
   });
 
   document.getElementById("add-week").addEventListener("click", function () {
-    weeksEl.appendChild(weekBlock("Week of"));
+    const block = weekBlock("Week of");
+    weeksEl.appendChild(block);
+    block.querySelector(".label").focus();
   });
 
   function collectWeeks() {
@@ -174,32 +237,39 @@
   }
 
   function badge(verdict) {
-    const safe = ["COMMIT", "SCHEDULE", "KILL"].indexOf(verdict) >= 0 ? verdict : "COMMIT";
+    const safe = ["COMMIT", "SCHEDULE", "KILL"].indexOf(verdict) >= 0 ? verdict : "SCHEDULE";
     return '<span class="badge ' + safe + '">' + safe + '</span>';
   }
+
+  function plural(n) { return n === 1 ? "week" : "weeks"; }
 
   function render(data) {
     const items = Array.isArray(data.recurring) ? data.recurring : [];
     let html = "";
     if (data.summary) {
-      html += '<div class="summary"></div>';
+      html += '<p class="summary"></p>';
     }
-    if (items.length === 0 && !data.summary) {
-      html += '<p>No task showed up in two or more weeks. Nothing is looping yet.</p>';
+    if (items.length === 0) {
+      if (!data.summary) {
+        html += '<p class="empty">No task showed up in two or more weeks. Nothing is looping yet.</p>';
+      }
+    } else {
+      html += '<p class="count">' + items.length + ' recurring ' + (items.length === 1 ? "task" : "tasks") + '</p>';
     }
     items.forEach(function (item) {
+      const seen = Number(item.weeks_seen) || 0;
       html +=
-        '<div class="card">' +
+        '<article class="card">' +
         '<div class="card-head">' +
         '<span class="task-text"></span>' +
-        '<span class="seen">' + (item.weeks_seen || 0) + ' weeks</span>' +
+        '<span class="seen">' + seen + ' ' + plural(seen) + '</span>' +
         badge(item.verdict) +
         '</div>' +
         '<p class="reasoning"></p>' +
         (item.verdict !== "KILL" && item.next_step
           ? '<p class="next-step"><strong>Next step:</strong> <span class="ns"></span></p>'
           : "") +
-        '</div>';
+        '</article>';
     });
     resultsEl.innerHTML = html;
 
@@ -219,40 +289,70 @@
     resultsEl.classList.remove("hidden");
   }
 
-  analyzeBtn.addEventListener("click", function () {
+  function setLoading(on) {
+    analyzeBtn.disabled = on;
+    analyzeBtn.setAttribute("aria-busy", on ? "true" : "false");
+    if (on) {
+      analyzeLabel.textContent = "Analyzing";
+      analyzeBtn.insertAdjacentHTML("beforeend", '<span class="spinner" id="spin" aria-hidden="true"></span>');
+    } else {
+      analyzeLabel.textContent = "Analyze";
+      const spin = document.getElementById("spin");
+      if (spin) { spin.remove(); }
+    }
+  }
+
+  function showMessage(text) {
+    messageEl.textContent = text;
+    messageEl.classList.remove("hidden");
+  }
+
+  function analyze() {
+    if (analyzeBtn.disabled) { return; }
     const weeks = collectWeeks();
     messageEl.classList.add("hidden");
     if (weeks.length === 0) {
-      messageEl.textContent = "Add at least one week with some tasks.";
-      messageEl.classList.remove("hidden");
+      showMessage("Add at least one week with some tasks, then analyze.");
+      return;
+    }
+    if (weeks.length < 2) {
+      showMessage("Add at least two weeks so there is something to compare.");
       return;
     }
 
-    analyzeBtn.disabled = true;
-    analyzeBtn.textContent = "Analyzing";
-
+    setLoading(true);
     fetch("/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ weeks: weeks })
     })
       .then(function (res) {
-        if (!res.ok) {
-          throw new Error("bad status");
-        }
+        if (res.status === 400) { throw new Error("input"); }
+        if (!res.ok) { throw new Error("server"); }
         return res.json();
       })
       .then(function (data) {
         render(data);
       })
-      .catch(function () {
-        messageEl.textContent = "Something went wrong. Try again in a moment.";
-        messageEl.classList.remove("hidden");
+      .catch(function (err) {
+        resultsEl.classList.add("hidden");
+        if (err && err.message === "input") {
+          showMessage("That input could not be read. Check your weeks and try again.");
+        } else {
+          showMessage("The analysis is unavailable right now. Try again in a moment.");
+        }
       })
       .finally(function () {
-        analyzeBtn.disabled = false;
-        analyzeBtn.textContent = "Analyze";
+        setLoading(false);
       });
+  }
+
+  analyzeBtn.addEventListener("click", analyze);
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      analyze();
+    }
   });
 </script>
 </body>
