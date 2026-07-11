@@ -201,3 +201,139 @@ def test_dynamo_round_trip_preserves_ints():
     restored = app.from_dynamo(app.to_dynamo(value))
     assert restored == value
     assert isinstance(restored[0]["weeks_seen"], int)
+
+
+def test_find_recurring_reports_week_indices():
+    data = weeks(
+        ["finish thesis chapter 3"],
+        ["cancel gym membership"],
+        ["finish thesis chapter 3"],
+    )
+    result = {item["task"]: item["week_indices"] for item in app.find_recurring(data)}
+    assert result["finish thesis chapter 3"] == [0, 2]
+
+
+def test_merge_populates_enriched_fields():
+    recurring = [{"task": "finish thesis", "weeks_seen": 3, "week_indices": [0, 1, 2]}]
+    judged = {
+        "recurring": [
+            {
+                "task": "finish thesis",
+                "verdict": "COMMIT",
+                "priority": "HIGH",
+                "reasoning": "Big and vague.",
+                "root_cause": "no clear first step",
+                "next_step": "Write 200 words.",
+                "effort": "45 min",
+                "kill_meaning": "",
+            }
+        ],
+        "summary": "Looping.",
+    }
+    item = app.merge(recurring, judged)["recurring"][0]
+    assert item["priority"] == "HIGH"
+    assert item["root_cause"] == "no clear first step"
+    assert item["effort"] == "45 min"
+    assert item["week_indices"] == [0, 1, 2]
+
+
+def test_merge_defaults_priority_and_effort_on_kill():
+    recurring = [{"task": "reorganize spice rack", "weeks_seen": 2}]
+    judged = {
+        "recurring": [
+            {"task": "reorganize spice rack", "verdict": "KILL", "kill_meaning": "A tidy shelf."}
+        ],
+        "summary": "",
+    }
+    item = app.merge(recurring, judged)["recurring"][0]
+    assert item["verdict"] == "KILL"
+    assert item["priority"] == "LOW"
+    assert item["effort"] == "none"
+    assert item["next_step"] == ""
+    assert item["kill_meaning"] == "A tidy shelf."
+
+
+def test_merge_rejects_invalid_priority():
+    recurring = [{"task": "review notes", "weeks_seen": 2}]
+    judged = {"recurring": [{"task": "review notes", "verdict": "SCHEDULE", "priority": "URGENT"}], "summary": "x"}
+    item = app.merge(recurring, judged)["recurring"][0]
+    assert item["priority"] == "MEDIUM"
+
+
+def test_momentum_stats_no_previous():
+    m = app.momentum_stats([{"task": "a"}], None)
+    assert m == {"broken": 0, "persisting": 0, "new": 0, "had_previous": False}
+
+
+def test_momentum_stats_counts_broken_open_new():
+    previous = [app.normalize("finish thesis"), app.normalize("call bank")]
+    current = [{"task": "finish thesis"}, {"task": "email boss"}]
+    m = app.momentum_stats(current, previous)
+    assert m == {"broken": 1, "persisting": 1, "new": 1, "had_previous": True}
+
+
+def test_previous_task_keys_reads_latest_analysis():
+    analyses = [
+        {"recurring": [{"task": "Finish Thesis"}, {"task": "Call Bank"}]},
+        {"recurring": [{"task": "old task"}]},
+    ]
+    assert app.previous_task_keys(analyses) == ["finish thesis", "call bank"]
+    assert app.previous_task_keys([]) is None
+
+
+@pytest.mark.parametrize("value", ["a@b.co", "  name.tag@sub.example.com  "])
+def test_clean_email_accepts_valid(value):
+    assert "@" in app.clean_email(value)
+
+
+def test_clean_email_blank_is_empty():
+    assert app.clean_email("") == ""
+    assert app.clean_email(None) == ""
+
+
+@pytest.mark.parametrize("value", ["notanemail", "no@domain", "@nope.com", "x" * 210 + "@a.com"])
+def test_clean_email_rejects_invalid(value):
+    with pytest.raises(ValueError):
+        app.clean_email(value)
+
+
+def test_parse_image_accepts_data_url():
+    import base64
+
+    payload = base64.b64encode(b"fake-png-bytes").decode()
+    body = '{"image":"data:image/png;base64,%s"}' % payload
+    raw, fmt = app.parse_image(body)
+    assert fmt == "png"
+    assert raw == payload
+
+
+def test_parse_image_maps_jpg_to_jpeg():
+    import base64
+
+    payload = base64.b64encode(b"jpeg-bytes").decode()
+    body = '{"image":"%s","format":"jpg"}' % payload
+    raw, fmt = app.parse_image(body)
+    assert fmt == "jpeg"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "",
+        "not json",
+        "[1,2,3]",
+        '{"image":""}',
+        '{"image":"data:image/png;base64,not!!base64"}',
+        '{"image":"YWJj","format":"tiff"}',
+    ],
+)
+def test_parse_image_rejects_bad_input(body):
+    with pytest.raises(ValueError):
+        app.parse_image(body)
+
+
+def test_analyze_weeks_empty_includes_momentum_shape():
+    result = app.analyze_weeks(weeks(["only once"]), None, None)
+    assert result["recurring"] == []
+    assert result["momentum"]["had_previous"] is False
+    assert result["weeks_total"] == 1

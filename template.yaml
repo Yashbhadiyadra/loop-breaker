@@ -1,6 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
+Parameters:
+  SenderEmail:
+    Type: String
+    Default: ""
+    Description: SES-verified From address for weekly confrontation emails. Leave empty to disable email.
+  AppUrl:
+    Type: String
+    Default: ""
+    Description: Public frontend URL used to build board links in emails.
+
 Globals:
   Function:
     Runtime: python3.12
@@ -56,6 +66,8 @@ Resources:
         Variables:
           TABLE_NAME: !Ref BoardsTable
           QUEUE_URL: !Ref SweepQueue
+          SENDER_EMAIL: !Ref SenderEmail
+          APP_URL: !Ref AppUrl
       FunctionUrlConfig:
         AuthType: NONE
         Cors:
@@ -91,7 +103,14 @@ Resources:
               Resource:
                 - !Sub arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-micro-v1:0
                 - !Sub arn:aws:bedrock:*::foundation-model/amazon.nova-micro-v1:0
+                - !Sub arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0
+                - !Sub arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0
                 - !Sub arn:aws:bedrock:us-east-1:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+              Resource: "*"
 
 Outputs:
   FunctionUrl:
