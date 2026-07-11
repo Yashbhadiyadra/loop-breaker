@@ -2,6 +2,8 @@
 
 Loop Breaker is a serverless app that finds the tasks you keep copying from one weekly to-do list to the next, then makes you decide on each one: commit, schedule, or kill. It runs entirely on AWS. Amplify hosts the frontend, a single Lambda behind a function URL runs the backend, DynamoDB stores the boards, SQS and EventBridge Scheduler drive a weekly re-check, Amazon SES sends the results by email, and Amazon Bedrock does the judging with the Nova Micro and Nova Lite models.
 
+![Loop Breaker start screen](screenshots/01-empty.png)
+
 ## Vision & What the App Does
 
 I have tried a lot of to-do systems, and they all failed me the same way. Every Sunday I wrote a fresh weekly list, and every week three or four tasks quietly walked across from the last one. "Finish thesis chapter 3." "Back up the old laptop." "Cancel the gym membership." They were never hard. They were vague, mildly unpleasant, or things I secretly did not intend to do. A normal to-do app is happy to let you carry a task forever. It never asks the obvious question: if this has been on your list for three weeks, what is actually going on?
@@ -15,6 +17,8 @@ Loop Breaker is my answer. You keep a running board of your recent weekly lists,
 Every card also carries a priority, a short line naming why that task keeps slipping, a rough effort estimate, and a first step you can act on. A small strip shows which weeks the task appeared in, so a three week loop looks different from a two week one at a glance.
 
 Two things make it feel less like a form and more like something watching your back. You do not have to type your lists, since you can point your camera at a handwritten page or a screenshot and it reads the tasks off the image. And the board does not wait for you to come back. Once a week it re-checks itself and, if you left an email, sends you the verdict without you lifting a finger.
+
+![Three weeks of lists entered, ready to analyze](screenshots/02-input.png)
 
 ## AWS Services Used / Architecture Overview
 
@@ -50,6 +54,8 @@ I set one rule at the start and let it shape everything: the code decides what i
 The part that decides what actually recurs is plain Python, and it never touches AWS. It normalizes each task, groups tasks that mean the same thing across weeks even when the wording drifts ("email professor" and "email professor about defense date" are the same loop), and counts how many distinct weeks each group spans. Only groups seen in two or more weeks survive. Because this is deterministic, the counts are always right, a one-off task can never be mislabeled as a loop, and I could cover it with unit tests that run in a tenth of a second. If nothing recurs, the app answers instantly and never calls a model.
 
 Only then does Bedrock enter. Nova Micro gets the tasks that already passed the check, plus how many earlier reports flagged each one, and its job is judgment. It is not allowed to invent tasks or change the counts. Anything it adds that does not match a known task gets dropped, and if it times out or returns something that is not valid JSON, the deterministic result is still there.
+
+![The verdicts, with priority, effort, and a loop history strip](screenshots/03-results.png)
 
 The autonomous weekly check was the piece I most wanted to get right, because it separates a tool you have to remember from one that remembers you. A schedule fires weekly and runs the app in planner mode, which lists every active board and drops one message per board onto SQS. Each message triggers the same Lambda in worker mode, which re-confronts the board, stores a fresh report, and emails it out. Fanning the work through a queue keeps each run short, and the dead-letter queue means one bad board does not sink the sweep.
 
