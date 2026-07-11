@@ -293,6 +293,9 @@
   const boardStatus = document.getElementById("board-status");
 
   const STORAGE_KEY = "loopBreakerBoardId";
+  const API_BASE = /\.on\.aws$/.test(location.hostname)
+    ? ""
+    : "https://t774n3ra6ovsa2j7c6nqefcn5a0bsvac.lambda-url.us-east-1.on.aws";
   let boardId = null;
   let weekCounter = 0;
 
@@ -508,7 +511,7 @@
   }
 
   function api(path, body) {
-    return fetch(path, {
+    return fetch(API_BASE + path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -552,7 +555,7 @@
   }
 
   function loadExisting(id) {
-    fetch("/boards/" + encodeURIComponent(id))
+    fetch(API_BASE + "/boards/" + encodeURIComponent(id))
       .then(function (res) {
         if (!res.ok) { throw new Error("gone"); }
         return res.json();
