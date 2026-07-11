@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Breaker</title>
+<style>
+  :root {
+    --bg: #f4f3f0;
+    --panel: #ffffff;
+    --ink: #23211d;
+    --muted: #6c675e;
+    --line: #ddd9d1;
+    --accent: #3f3a32;
+    --commit: #2f7a45;
+    --schedule: #b5760d;
+    --kill: #b23b32;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 20px 80px;
+  }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .subtitle { color: var(--muted); margin: 0 0 36px; }
+  h2 { font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 16px; }
+  .week {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .week-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+  input, textarea {
+    width: 100%;
+    font: inherit;
+    color: var(--ink);
+    background: #fbfaf8;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 9px 11px;
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 96px; }
+  .week-head input { flex: 1; }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: #fbfaf8;
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 7px 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .remove { padding: 7px 11px; color: var(--muted); }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+  .analyze {
+    margin-top: 8px;
+    background: var(--accent);
+    color: #fbfaf8;
+    border-color: var(--accent);
+    padding: 11px 22px;
+    font-size: 16px;
+  }
+  .analyze:hover { background: #2c2822; }
+  #results { margin-top: 44px; }
+  .summary {
+    font-size: 18px;
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 14px;
+    margin-bottom: 22px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .task-text { font-weight: 600; flex: 1; }
+  .seen { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .badge {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 100px;
+    color: #fff;
+  }
+  .badge.COMMIT { background: var(--commit); }
+  .badge.SCHEDULE { background: var(--schedule); }
+  .badge.KILL { background: var(--kill); }
+  .reasoning { margin: 0 0 8px; }
+  .next-step { color: var(--muted); font-size: 14px; }
+  .next-step strong { color: var(--ink); }
+  .message { color: var(--kill); margin-top: 20px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Loop Breaker</h1>
+  <p class="subtitle">Paste your recent weekly to-do lists. It finds the tasks you keep dragging forward and makes you decide: commit, schedule, or kill.</p>
+
+  <h2>Your recent weeks</h2>
+  <div id="weeks"></div>
+  <div class="row">
+    <button id="add-week" type="button">Add week</button>
+  </div>
+
+  <button id="analyze" class="analyze" type="button">Analyze</button>
+
+  <div id="results" class="hidden"></div>
+  <p id="message" class="message hidden"></p>
+</div>
+
+<script>
+  const weeksEl = document.getElementById("weeks");
+  const resultsEl = document.getElementById("results");
+  const messageEl = document.getElementById("message");
+  const analyzeBtn = document.getElementById("analyze");
+
+  function weekBlock(labelPlaceholder) {
+    const block = document.createElement("div");
+    block.className = "week";
+    block.innerHTML =
+      '<div class="week-head">' +
+      '<input class="label" type="text" placeholder="' + labelPlaceholder + '">' +
+      '<button class="remove" type="button">Remove</button>' +
+      '</div>' +
+      '<textarea class="tasks" placeholder="One task per line&#10;finish thesis chapter 3&#10;email professor about defense date"></textarea>';
+    block.querySelector(".remove").addEventListener("click", function () {
+      if (weeksEl.children.length > 1) {
+        block.remove();
+      }
+    });
+    return block;
+  }
+
+  const placeholders = ["Week of Jun 22", "Week of Jun 29", "Week of Jul 6"];
+  placeholders.forEach(function (p) {
+    weeksEl.appendChild(weekBlock(p));
+  });
+
+  document.getElementById("add-week").addEventListener("click", function () {
+    weeksEl.appendChild(weekBlock("Week of"));
+  });
+
+  function collectWeeks() {
+    const weeks = [];
+    weeksEl.querySelectorAll(".week").forEach(function (block) {
+      const label = block.querySelector(".label").value.trim();
+      const tasks = block.querySelector(".tasks").value
+        .split("\n")
+        .map(function (t) { return t.trim(); })
+        .filter(function (t) { return t.length > 0; });
+      if (tasks.length > 0) {
+        weeks.push({ label: label || "Untitled week", tasks: tasks });
+      }
+    });
+    return weeks;
+  }
+
+  function badge(verdict) {
+    const safe = ["COMMIT", "SCHEDULE", "KILL"].indexOf(verdict) >= 0 ? verdict : "COMMIT";
+    return '<span class="badge ' + safe + '">' + safe + '</span>';
+  }
+
+  function render(data) {
+    const items = Array.isArray(data.recurring) ? data.recurring : [];
+    let html = "";
+    if (data.summary) {
+      html += '<div class="summary"></div>';
+    }
+    if (items.length === 0) {
+      html += '<p>No task showed up in two or more weeks. Nothing is looping yet.</p>';
+    }
+    items.forEach(function (item) {
+      html +=
+        '<div class="card">' +
+        '<div class="card-head">' +
+        '<span class="task-text"></span>' +
+        '<span class="seen">' + (item.weeks_seen || 0) + ' weeks</span>' +
+        badge(item.verdict) +
+        '</div>' +
+        '<p class="reasoning"></p>' +
+        (item.verdict !== "KILL" && item.next_step
+          ? '<p class="next-step"><strong>Next step:</strong> <span class="ns"></span></p>'
+          : "") +
+        '</div>';
+    });
+    resultsEl.innerHTML = html;
+
+    if (data.summary) {
+      resultsEl.querySelector(".summary").textContent = data.summary;
+    }
+    const cards = resultsEl.querySelectorAll(".card");
+    items.forEach(function (item, i) {
+      const card = cards[i];
+      card.querySelector(".task-text").textContent = item.task || "";
+      card.querySelector(".reasoning").textContent = item.reasoning || "";
+      const ns = card.querySelector(".ns");
+      if (ns) {
+        ns.textContent = item.next_step;
+      }
+    });
+    resultsEl.classList.remove("hidden");
+  }
+
+  analyzeBtn.addEventListener("click", function () {
+    const weeks = collectWeeks();
+    messageEl.classList.add("hidden");
+    if (weeks.length === 0) {
+      messageEl.textContent = "Add at least one week with some tasks.";
+      messageEl.classList.remove("hidden");
+      return;
+    }
+
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = "Analyzing";
+
+    fetch("/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weeks: weeks })
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error("bad status");
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        render(data);
+      })
+      .catch(function () {
+        messageEl.textContent = "Something went wrong. Try again in a moment.";
+        messageEl.classList.remove("hidden");
+      })
+      .finally(function () {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = "Analyze";
+      });
+  });
+</script>
+</body>
+</html>
