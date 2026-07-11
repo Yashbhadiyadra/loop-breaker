@@ -70,14 +70,6 @@ Resources:
           APP_URL: !Ref AppUrl
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - "*"
-          AllowMethods:
-            - GET
-            - POST
-          AllowHeaders:
-            - content-type
       Events:
         WeeklySweep:
           Type: ScheduleV2
