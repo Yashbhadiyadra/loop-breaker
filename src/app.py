@@ -23,7 +23,12 @@ SYSTEM_PROMPT = (
     "You analyze a person's weekly to-do lists to find tasks they keep putting off. "
     "Identify tasks that recur across two or more of the provided weeks. A task recurs "
     "when the same intent appears in different weeks even if the wording differs slightly. "
-    "Ignore any task that appears in only one week. For each recurring task, decide a "
+    "This is the whole point: only a task that shows up in at least two separate weeks "
+    "counts. Ignore any task that appears in only one week, no matter how important it "
+    "sounds. weeks_seen is the number of distinct weeks the task appears in, and it must be "
+    "2 or greater for every task you include. If no task appears in two or more weeks, "
+    "return an empty recurring array and say so in the summary. Do not invent recurrence. "
+    "For each recurring task, decide a "
     "verdict: COMMIT when it matters and needs a concrete first step now, SCHEDULE when it "
     "should be pinned to a specific time, KILL when it keeps sliding because it does not "
     "actually matter. Be blunt and honest, not encouraging. No motivational fluff. "
@@ -90,7 +95,32 @@ def handle_analyze(event):
         logger.error("Could not parse model output: %s", raw)
         return json_response(502, {"error": "analysis unavailable"})
 
-    return json_response(200, parsed)
+    return json_response(200, sanitize(parsed))
+
+
+def sanitize(parsed):
+    if not isinstance(parsed, dict):
+        return {"recurring": [], "summary": ""}
+
+    items = parsed.get("recurring")
+    kept = []
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict) and weeks_seen(item) >= 2:
+                kept.append(item)
+
+    summary = parsed.get("summary", "")
+    if not kept:
+        summary = "No task showed up in two or more weeks. Nothing is looping yet."
+
+    return {"recurring": kept, "summary": summary if isinstance(summary, str) else ""}
+
+
+def weeks_seen(item):
+    try:
+        return int(item.get("weeks_seen", 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def parse_weeks(body):

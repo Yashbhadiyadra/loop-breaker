@@ -184,7 +184,7 @@
     if (data.summary) {
       html += '<div class="summary"></div>';
     }
-    if (items.length === 0) {
+    if (items.length === 0 && !data.summary) {
       html += '<p>No task showed up in two or more weeks. Nothing is looping yet.</p>';
     }
     items.forEach(function (item) {
