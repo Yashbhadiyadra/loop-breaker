@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="description" content="Find the tasks you keep carrying between weekly to-do lists and decide: commit, schedule, or kill.">
+<meta name="description" content="Track the tasks you keep carrying between weekly to-do lists and decide: commit, schedule, or kill.">
 <title>Loop Breaker</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233f3a32'/%3E%3Cpath d='M11 16a5 5 0 1 1 5 5' fill='none' stroke='%23f4f3f0' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M9 13l2 3 3-2' fill='none' stroke='%23b23b32' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
@@ -33,89 +33,70 @@
   }
   .wrap { max-width: 720px; margin: 0 auto; padding: 48px 20px 72px; }
   h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
-  .subtitle { color: var(--muted); margin: 0 0 28px; max-width: 60ch; }
+  .subtitle { color: var(--muted); margin: 0 0 24px; max-width: 60ch; }
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 14px; }
   .visually-hidden {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
-  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 30px; font-size: 13px; color: var(--muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 22px; font-size: 13px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 7px; }
   .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   .dot.commit { background: var(--commit); }
   .dot.schedule { background: var(--schedule); }
   .dot.kill { background: var(--kill); }
+  .board-bar {
+    display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    padding: 12px 14px; margin-bottom: 26px; font-size: 14px;
+  }
+  .board-bar .status { flex: 1; min-width: 200px; color: var(--muted); }
+  .board-bar a { color: var(--accent); word-break: break-all; }
+  .board-bar button { padding: 6px 11px; font-size: 13px; }
   .week {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    padding: 16px;
-    margin-bottom: 14px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; padding: 16px; margin-bottom: 14px;
   }
   .week-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
   .week-head input { flex: 1; }
   input, textarea {
-    width: 100%;
-    font: inherit;
-    color: var(--ink);
-    background: var(--field);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 9px 11px;
+    width: 100%; font: inherit; color: var(--ink); background: var(--field);
+    border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px;
   }
   textarea { resize: vertical; min-height: 104px; }
   input:focus-visible, textarea:focus-visible, button:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 1px;
-    border-color: transparent;
+    outline: 2px solid var(--focus); outline-offset: 1px; border-color: transparent;
   }
   button {
-    font: inherit;
-    cursor: pointer;
-    border: 1px solid var(--line);
-    background: var(--field);
-    color: var(--ink);
-    border-radius: 6px;
-    padding: 7px 13px;
+    font: inherit; cursor: pointer; border: 1px solid var(--line);
+    background: var(--field); color: var(--ink); border-radius: 6px; padding: 7px 13px;
   }
   button:hover { border-color: var(--accent); }
   button:disabled { opacity: 0.55; cursor: default; }
   .remove { color: var(--muted); padding: 7px 12px; }
   .controls { display: flex; align-items: center; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
   .analyze {
-    background: var(--accent);
-    color: var(--field);
-    border-color: var(--accent);
-    padding: 11px 24px;
-    font-size: 16px;
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
+    background: var(--accent); color: var(--field); border-color: var(--accent);
+    padding: 11px 24px; font-size: 16px; display: inline-flex; align-items: center; gap: 9px;
   }
   .analyze:hover:not(:disabled) { background: var(--accent-hover); }
   .hint { color: var(--muted); font-size: 13px; }
   .spinner {
     width: 15px; height: 15px; border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.4);
-    border-top-color: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff;
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
   #results { margin-top: 40px; }
   .summary {
-    font-size: 18px;
-    border-left: 3px solid var(--accent);
-    padding: 3px 0 3px 14px;
-    margin-bottom: 22px;
+    font-size: 18px; border-left: 3px solid var(--accent);
+    padding: 3px 0 3px 14px; margin-bottom: 22px;
   }
   .count { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    padding: 16px 18px;
-    margin-bottom: 14px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; padding: 16px 18px; margin-bottom: 14px;
   }
   .card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
   .task-text { font-weight: 600; flex: 1; }
@@ -128,13 +109,22 @@
   .badge.SCHEDULE { background: var(--schedule); }
   .badge.KILL { background: var(--kill); }
   .reasoning { margin: 0 0 8px; }
-  .next-step { color: var(--muted); font-size: 14px; margin: 0; }
+  .next-step { color: var(--muted); font-size: 14px; margin: 0 0 6px; }
   .next-step strong { color: var(--ink); }
+  .repeat { font-size: 13px; color: var(--kill); margin: 0; font-weight: 600; }
   .message {
     margin-top: 18px; padding: 11px 14px; border-radius: 7px;
     background: #f7e7e5; color: #8f2b23; border: 1px solid #e6c4c0;
   }
   .empty { color: var(--muted); }
+  #history { margin-top: 40px; }
+  .report {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .report .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { background: var(--field); border: 1px solid var(--line); border-radius: 100px; padding: 1px 8px; }
+  .report p { margin: 0; }
   footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
   .hidden { display: none; }
   @media (max-width: 520px) {
@@ -148,13 +138,19 @@
 <div class="wrap">
   <header>
     <h1>Loop Breaker</h1>
-    <p class="subtitle">Paste your recent weekly to-do lists. It finds the tasks you keep dragging forward and makes you decide: commit, schedule, or kill.</p>
+    <p class="subtitle">Keep a running board of your weekly to-do lists. It tracks the tasks you keep dragging forward and makes you decide: commit, schedule, or kill. It also rechecks your board on its own once a week.</p>
     <div class="legend" aria-hidden="true">
       <span><span class="dot commit"></span>Commit, needs a first step</span>
       <span><span class="dot schedule"></span>Schedule, needs a time</span>
       <span><span class="dot kill"></span>Kill, let it go</span>
     </div>
   </header>
+
+  <div id="board-bar" class="board-bar hidden">
+    <span class="status" id="board-status"></span>
+    <button id="copy-link" type="button">Copy link</button>
+    <button id="new-board" type="button">Start fresh</button>
+  </div>
 
   <main>
     <h2 id="weeks-heading">Your recent weeks</h2>
@@ -173,21 +169,33 @@
 
     <p id="message" class="message hidden" role="alert"></p>
     <section id="results" class="hidden" aria-live="polite" aria-label="Analysis results"></section>
+    <section id="history" class="hidden" aria-label="Past reports"></section>
   </main>
 
-  <footer>Runs on AWS Lambda and Amazon Bedrock Nova Micro. Nothing is stored.</footer>
+  <footer>Runs on AWS Lambda, DynamoDB, and Amazon Bedrock Nova Micro. Your board lives behind a private link.</footer>
 </div>
 
 <script>
   const weeksEl = document.getElementById("weeks");
   const resultsEl = document.getElementById("results");
+  const historyEl = document.getElementById("history");
   const messageEl = document.getElementById("message");
   const analyzeBtn = document.getElementById("analyze");
   const analyzeLabel = document.getElementById("analyze-label");
+  const boardBar = document.getElementById("board-bar");
+  const boardStatus = document.getElementById("board-status");
 
+  const STORAGE_KEY = "loopBreakerBoardId";
+  let boardId = null;
   let weekCounter = 0;
 
-  function weekBlock(labelPlaceholder) {
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function weekBlock(label, tasks) {
     weekCounter += 1;
     const id = weekCounter;
     const block = document.createElement("div");
@@ -195,11 +203,13 @@
     block.innerHTML =
       '<div class="week-head">' +
       '<label class="visually-hidden" for="label-' + id + '">Week label</label>' +
-      '<input class="label" id="label-' + id + '" type="text" autocomplete="off" placeholder="' + labelPlaceholder + '">' +
+      '<input class="label" id="label-' + id + '" type="text" autocomplete="off" placeholder="Week of Jul 6">' +
       '<button class="remove" type="button" aria-label="Remove this week">Remove</button>' +
       '</div>' +
       '<label class="visually-hidden" for="tasks-' + id + '">Tasks for this week, one per line</label>' +
       '<textarea class="tasks" id="tasks-' + id + '" placeholder="One task per line&#10;finish thesis chapter 3&#10;email professor about defense date"></textarea>';
+    block.querySelector(".label").value = label || "";
+    block.querySelector(".tasks").value = tasks || "";
     block.querySelector(".remove").addEventListener("click", function () {
       if (weeksEl.children.length > 1) {
         block.remove();
@@ -211,12 +221,26 @@
     return block;
   }
 
-  ["Week of Jun 22", "Week of Jun 29", "Week of Jul 6"].forEach(function (p) {
-    weeksEl.appendChild(weekBlock(p));
-  });
+  function seedBlankWeeks() {
+    weeksEl.innerHTML = "";
+    ["Week of Jun 22", "Week of Jun 29", "Week of Jul 6"].forEach(function (label) {
+      weeksEl.appendChild(weekBlock(label, ""));
+    });
+  }
+
+  function loadWeeks(weeks) {
+    weeksEl.innerHTML = "";
+    if (!weeks || weeks.length === 0) {
+      seedBlankWeeks();
+      return;
+    }
+    weeks.forEach(function (w) {
+      weeksEl.appendChild(weekBlock(w.label, (w.tasks || []).join("\n")));
+    });
+  }
 
   document.getElementById("add-week").addEventListener("click", function () {
-    const block = weekBlock("Week of");
+    const block = weekBlock("Week of", "");
     weeksEl.appendChild(block);
     block.querySelector(".label").focus();
   });
@@ -226,8 +250,7 @@
     weeksEl.querySelectorAll(".week").forEach(function (block) {
       const label = block.querySelector(".label").value.trim();
       const tasks = block.querySelector(".tasks").value
-        .split("\n")
-        .map(function (t) { return t.trim(); })
+        .split("\n").map(function (t) { return t.trim(); })
         .filter(function (t) { return t.length > 0; });
       if (tasks.length > 0) {
         weeks.push({ label: label || "Untitled week", tasks: tasks });
@@ -241,52 +264,89 @@
     return '<span class="badge ' + safe + '">' + safe + '</span>';
   }
 
-  function plural(n) { return n === 1 ? "week" : "weeks"; }
+  function plural(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
 
-  function render(data) {
+  function repeatNote(item) {
+    const seen = Number(item.seen_before) || 0;
+    if (seen <= 0) { return ""; }
+    if (item.committed_before) {
+      return "You committed to this in " + plural(seen, "earlier report") + " and it is still here.";
+    }
+    return "Flagged in " + plural(seen, "earlier report") + " already.";
+  }
+
+  function renderResults(data) {
     const items = Array.isArray(data.recurring) ? data.recurring : [];
     let html = "";
-    if (data.summary) {
-      html += '<p class="summary"></p>';
-    }
+    if (data.summary) { html += '<p class="summary">' + esc(data.summary) + '</p>'; }
     if (items.length === 0) {
       if (!data.summary) {
         html += '<p class="empty">No task showed up in two or more weeks. Nothing is looping yet.</p>';
       }
     } else {
-      html += '<p class="count">' + items.length + ' recurring ' + (items.length === 1 ? "task" : "tasks") + '</p>';
+      html += '<p class="count">' + plural(items.length, "recurring task") + '</p>';
     }
     items.forEach(function (item) {
       const seen = Number(item.weeks_seen) || 0;
+      const note = repeatNote(item);
       html +=
         '<article class="card">' +
         '<div class="card-head">' +
-        '<span class="task-text"></span>' +
-        '<span class="seen">' + seen + ' ' + plural(seen) + '</span>' +
+        '<span class="task-text">' + esc(item.task || "") + '</span>' +
+        '<span class="seen">' + plural(seen, "week") + '</span>' +
         badge(item.verdict) +
         '</div>' +
-        '<p class="reasoning"></p>' +
+        '<p class="reasoning">' + esc(item.reasoning || "") + '</p>' +
         (item.verdict !== "KILL" && item.next_step
-          ? '<p class="next-step"><strong>Next step:</strong> <span class="ns"></span></p>'
-          : "") +
+          ? '<p class="next-step"><strong>Next step:</strong> ' + esc(item.next_step) + '</p>' : "") +
+        (note ? '<p class="repeat">' + esc(note) + '</p>' : "") +
         '</article>';
     });
     resultsEl.innerHTML = html;
-
-    if (data.summary) {
-      resultsEl.querySelector(".summary").textContent = data.summary;
-    }
-    const cards = resultsEl.querySelectorAll(".card");
-    items.forEach(function (item, i) {
-      const card = cards[i];
-      card.querySelector(".task-text").textContent = item.task || "";
-      card.querySelector(".reasoning").textContent = item.reasoning || "";
-      const ns = card.querySelector(".ns");
-      if (ns) {
-        ns.textContent = item.next_step;
-      }
-    });
     resultsEl.classList.remove("hidden");
+  }
+
+  function formatDate(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) { return ""; }
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " +
+      d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  function renderHistory(analyses) {
+    const past = (analyses || []).slice(1);
+    if (past.length === 0) { historyEl.classList.add("hidden"); historyEl.innerHTML = ""; return; }
+    let html = '<h2>Past reports</h2>';
+    past.forEach(function (a) {
+      const source = a.source === "weekly" ? "weekly auto-check" : "manual";
+      html += '<div class="report">' +
+        '<div class="meta"><span>' + esc(formatDate(a.created)) + '</span><span class="tag">' + esc(source) + '</span>' +
+        '<span>' + plural((a.recurring || []).length, "loop") + '</span></div>' +
+        '<p>' + esc(a.summary || "") + '</p></div>';
+    });
+    historyEl.innerHTML = html;
+    historyEl.classList.remove("hidden");
+  }
+
+  function renderBoard(board) {
+    boardId = board.id;
+    localStorage.setItem(STORAGE_KEY, boardId);
+    loadWeeks(board.weeks);
+    const analyses = board.analyses || [];
+    if (analyses.length > 0) {
+      renderResults(analyses[0]);
+      renderHistory(analyses);
+    }
+    showBoardBar();
+  }
+
+  function boardLink() {
+    return location.origin + "/?b=" + encodeURIComponent(boardId);
+  }
+
+  function showBoardBar() {
+    boardStatus.innerHTML = 'Saved to a private board. Return anytime at <a href="' + esc(boardLink()) + '">' + esc(boardLink()) + '</a>';
+    boardBar.classList.remove("hidden");
   }
 
   function setLoading(on) {
@@ -307,32 +367,37 @@
     messageEl.classList.remove("hidden");
   }
 
+  function api(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (res.status === 400) { throw new Error("input"); }
+      if (!res.ok) { throw new Error("server"); }
+      return res.json();
+    });
+  }
+
   function analyze() {
     if (analyzeBtn.disabled) { return; }
     const weeks = collectWeeks();
     messageEl.classList.add("hidden");
-    if (weeks.length === 0) {
-      showMessage("Add at least one week with some tasks, then analyze.");
-      return;
-    }
-    if (weeks.length < 2) {
-      showMessage("Add at least two weeks so there is something to compare.");
-      return;
-    }
+    if (weeks.length === 0) { showMessage("Add at least one week with some tasks, then analyze."); return; }
+    if (weeks.length < 2) { showMessage("Add at least two weeks so there is something to compare."); return; }
 
     setLoading(true);
-    fetch("/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weeks: weeks })
-    })
-      .then(function (res) {
-        if (res.status === 400) { throw new Error("input"); }
-        if (!res.ok) { throw new Error("server"); }
-        return res.json();
+    const ensureBoard = boardId
+      ? Promise.resolve(boardId)
+      : api("/boards", { weeks: weeks }).then(function (b) { return b.id; });
+
+    ensureBoard
+      .then(function (id) {
+        boardId = id;
+        return api("/boards/" + id + "/analyze", { weeks: weeks });
       })
-      .then(function (data) {
-        render(data);
+      .then(function (board) {
+        renderBoard(board);
       })
       .catch(function (err) {
         resultsEl.classList.add("hidden");
@@ -342,18 +407,57 @@
           showMessage("The analysis is unavailable right now. Try again in a moment.");
         }
       })
-      .finally(function () {
-        setLoading(false);
+      .finally(function () { setLoading(false); });
+  }
+
+  function loadExisting(id) {
+    fetch("/boards/" + encodeURIComponent(id))
+      .then(function (res) {
+        if (!res.ok) { throw new Error("gone"); }
+        return res.json();
+      })
+      .then(function (board) { renderBoard(board); })
+      .catch(function () {
+        localStorage.removeItem(STORAGE_KEY);
+        seedBlankWeeks();
       });
   }
 
-  analyzeBtn.addEventListener("click", analyze);
-  document.addEventListener("keydown", function (e) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      analyze();
+  document.getElementById("new-board").addEventListener("click", function () {
+    localStorage.removeItem(STORAGE_KEY);
+    boardId = null;
+    history.replaceState(null, "", location.pathname);
+    seedBlankWeeks();
+    resultsEl.classList.add("hidden");
+    historyEl.classList.add("hidden");
+    boardBar.classList.add("hidden");
+    messageEl.classList.add("hidden");
+  });
+
+  document.getElementById("copy-link").addEventListener("click", function () {
+    const link = boardLink();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(link).then(function () {
+        boardStatus.textContent = "Link copied.";
+      }, function () {});
     }
   });
+
+  analyzeBtn.addEventListener("click", analyze);
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); analyze(); }
+  });
+
+  const params = new URLSearchParams(location.search);
+  const fromUrl = params.get("b");
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (fromUrl) {
+    loadExisting(fromUrl);
+  } else if (stored) {
+    loadExisting(stored);
+  } else {
+    seedBlankWeeks();
+  }
 </script>
 </body>
 </html>

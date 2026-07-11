@@ -157,3 +157,47 @@ def test_merge_normalizes_invalid_verdict():
     judged = {"recurring": [{"task": "review notes", "verdict": "MAYBE"}], "summary": "x"}
     item = app.merge(recurring, judged)["recurring"][0]
     assert item["verdict"] == "SCHEDULE"
+
+
+def test_validate_weeks_returns_cleaned_list():
+    weeks = [{"label": "w1", "tasks": ["a"], "extra": "ignored"}]
+    assert app.validate_weeks(weeks) == [{"label": "w1", "tasks": ["a"]}]
+
+
+def test_validate_weeks_caps_week_count():
+    weeks = [{"label": "w", "tasks": []} for _ in range(app.MAX_WEEKS + 1)]
+    with pytest.raises(ValueError):
+        app.validate_weeks(weeks)
+
+
+def test_history_stats_counts_flags_and_verdicts():
+    analyses = [
+        {"recurring": [{"task": "finish thesis", "verdict": "COMMIT"}]},
+        {"recurring": [{"task": "Finish Thesis", "verdict": "SCHEDULE"}]},
+    ]
+    stats = app.history_stats(analyses)
+    entry = stats[app.normalize("finish thesis")]
+    assert entry["times"] == 2
+    assert entry["verdicts"] == ["COMMIT", "SCHEDULE"]
+
+
+def test_enrich_history_marks_prior_commitment():
+    results = [{"task": "finish thesis", "weeks_seen": 3}]
+    history = {app.normalize("finish thesis"): {"times": 2, "verdicts": ["COMMIT", "SCHEDULE"]}}
+    app.enrich_history(results, history)
+    assert results[0]["seen_before"] == 2
+    assert results[0]["committed_before"] is True
+
+
+def test_enrich_history_defaults_for_new_task():
+    results = [{"task": "new thing", "weeks_seen": 2}]
+    app.enrich_history(results, {})
+    assert results[0]["seen_before"] == 0
+    assert results[0]["committed_before"] is False
+
+
+def test_dynamo_round_trip_preserves_ints():
+    value = [{"task": "x", "weeks_seen": 3, "committed_before": False}]
+    restored = app.from_dynamo(app.to_dynamo(value))
+    assert restored == value
+    assert isinstance(restored[0]["weeks_seen"], int)

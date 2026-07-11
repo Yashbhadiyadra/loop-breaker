@@ -1,17 +1,61 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
+Globals:
+  Function:
+    Runtime: python3.12
+    MemorySize: 512
+    Timeout: 30
+    Architectures:
+      - arm64
+
 Resources:
+  BoardsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: loop-breaker-boards
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: loop-breaker-dlq
+      MessageRetentionPeriod: 1209600
+
+  SweepQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: loop-breaker-sweep
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
   LoopBreakerFn:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: src/
       Handler: app.lambda_handler
-      Runtime: python3.12
-      MemorySize: 512
-      Timeout: 30
-      Architectures:
-        - arm64
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref BoardsTable
+          QUEUE_URL: !Ref SweepQueue
       FunctionUrlConfig:
         AuthType: NONE
         Cors:
@@ -22,7 +66,24 @@ Resources:
             - POST
           AllowHeaders:
             - content-type
+      Events:
+        WeeklySweep:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(0 13 ? * MON *)
+            Input: '{"job": "weekly-sweep"}'
+        SweepWorker:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt SweepQueue.Arn
+            BatchSize: 1
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BoardsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt SweepQueue.QueueName
+        - SQSPollerPolicy:
+            QueueName: !GetAtt SweepQueue.QueueName
         - Statement:
             - Effect: Allow
               Action:
@@ -36,3 +97,6 @@ Outputs:
   FunctionUrl:
     Description: Public URL for Loop Breaker
     Value: !GetAtt LoopBreakerFnUrl.FunctionUrl
+  SweepQueueUrl:
+    Description: Queue that fans out weekly board confrontations
+    Value: !Ref SweepQueue

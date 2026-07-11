@@ -2,7 +2,10 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
+from datetime import datetime, timezone
+from decimal import Decimal
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -12,7 +15,12 @@ FALLBACK_MODEL = "amazon.nova-micro-v1:0"
 MAX_TASKS = 200
 MAX_TASK_LEN = 300
 MAX_BODY_BYTES = 64 * 1024
+MAX_WEEKS = 30
 VERDICTS = ("COMMIT", "SCHEDULE", "KILL")
+ANALYSIS_TTL_DAYS = 180
+MAX_ANALYSES = 40
+
+TABLE_NAME = os.environ.get("TABLE_NAME", "")
 
 # Words that carry no signal when deciding whether two tasks are the same intent.
 STOPWORDS = frozenset(
@@ -24,14 +32,16 @@ _here = os.path.dirname(__file__)
 with open(os.path.join(_here, "index.html"), encoding="utf-8") as f:
     INDEX_HTML = f.read()
 
-_client = None
+_bedrock = None
+_table = None
 
 SYSTEM_PROMPT = (
     "You are Loop Breaker. A person keeps carrying the same unfinished tasks from one "
     "weekly to-do list to the next, and you call that out. You will be given the tasks "
     "that have already been confirmed to recur across two or more weeks, with the number "
-    "of weeks each one appeared in. Your job is only to judge each one. Do not add tasks, "
-    "do not drop tasks, and do not change the week counts.\n\n"
+    "of weeks each one appeared in and, where known, how many earlier reports already "
+    "flagged it and what you told them last time. Your job is only to judge each one. Do "
+    "not add tasks, do not drop tasks, and do not change the week counts.\n\n"
     "For each task, choose a verdict:\n"
     "COMMIT when the task clearly matters and the real blocker is that it is vague or "
     "daunting, so it needs a concrete first step today.\n"
@@ -40,6 +50,8 @@ SYSTEM_PROMPT = (
     "KILL only when the task genuinely does not matter enough to justify the space it "
     "keeps taking. Do not reach for KILL just because a task repeated. Most recurring "
     "tasks are COMMIT or SCHEDULE.\n\n"
+    "When a task was already flagged in earlier reports, do not repeat the same soft "
+    "advice. Be sharper about the fact that they have not acted on it yet.\n\n"
     "reasoning is one blunt sentence, direct and unsentimental, no praise or "
     "encouragement. next_step is a concrete action the person can take, and it must be an "
     "empty string when the verdict is KILL. summary is one honest line about the overall "
@@ -93,6 +105,14 @@ HTML_CSP = (
 
 
 def lambda_handler(event, context):
+    if isinstance(event, dict) and event.get("Records"):
+        return handle_sqs(event)
+    if isinstance(event, dict) and event.get("job") == "weekly-sweep":
+        return run_weekly_sweep()
+    return handle_http(event)
+
+
+def handle_http(event):
     request = event.get("requestContext", {}).get("http", {})
     method = request.get("method", "")
     path = event.get("rawPath", "/")
@@ -111,8 +131,21 @@ def lambda_handler(event, context):
         if path == "/favicon.ico":
             return {"statusCode": 204, "headers": dict(SECURITY_HEADERS), "body": ""}
 
+    segments = [s for s in path.split("/") if s]
+
     if method == "POST" and path == "/analyze":
         return handle_analyze(event)
+
+    if method == "POST" and path == "/boards":
+        return handle_create_board(event)
+
+    if len(segments) == 2 and segments[0] == "boards":
+        board_id = segments[1]
+        if method == "GET":
+            return handle_get_board(board_id)
+    if len(segments) == 3 and segments[0] == "boards" and segments[2] == "analyze":
+        if method == "POST":
+            return handle_board_analyze(event, segments[1])
 
     return json_response(404, {"error": "not found"})
 
@@ -122,30 +155,83 @@ def handle_analyze(event):
         weeks = parse_weeks(event.get("body"))
     except ValueError:
         return json_response(400, {"error": "invalid input"})
-
-    recurring = find_recurring(weeks)
-    if not recurring:
-        return json_response(
-            200,
-            {
-                "recurring": [],
-                "summary": "No task showed up in two or more weeks. Nothing is looping yet.",
-            },
-        )
-
     try:
-        judged = judge(recurring)
+        result = analyze_weeks(weeks)
     except AccessDenied:
         logger.error("Bedrock access denied for Nova Micro")
         return json_response(502, {"error": "analysis unavailable"})
     except Exception:
-        logger.exception("Bedrock judgment failed")
+        logger.exception("Analysis failed")
+        return json_response(502, {"error": "analysis unavailable"})
+    return json_response(200, result)
+
+
+def handle_create_board(event):
+    try:
+        data = parse_body(event.get("body"))
+        weeks = validate_weeks(data.get("weeks"))
+    except ValueError:
+        return json_response(400, {"error": "invalid input"})
+    title = clean_text(data.get("title"))[:120]
+    board_id = new_board_id()
+    save_board(board_id, weeks, title)
+    return json_response(200, {"id": board_id, "title": title, "weeks": weeks, "analyses": []})
+
+
+def handle_get_board(board_id):
+    board = load_board(board_id)
+    if board is None:
+        return json_response(404, {"error": "not found"})
+    return json_response(200, board)
+
+
+def handle_board_analyze(event, board_id):
+    board = load_board(board_id)
+    if board is None:
+        return json_response(404, {"error": "not found"})
+
+    try:
+        data = parse_body(event.get("body"))
+    except ValueError:
+        return json_response(400, {"error": "invalid input"})
+
+    weeks = board["weeks"]
+    if data.get("weeks") is not None:
+        try:
+            weeks = validate_weeks(data.get("weeks"))
+        except ValueError:
+            return json_response(400, {"error": "invalid input"})
+        save_board(board_id, weeks, board.get("title", ""))
+
+    history = history_stats(board.get("analyses", []))
+    try:
+        result = analyze_weeks(weeks, history)
+    except AccessDenied:
+        logger.error("Bedrock access denied for Nova Micro")
+        return json_response(502, {"error": "analysis unavailable"})
+    except Exception:
+        logger.exception("Board analysis failed")
         return json_response(502, {"error": "analysis unavailable"})
 
-    return json_response(200, merge(recurring, judged))
+    put_analysis(board_id, result, "manual")
+    refreshed = load_board(board_id)
+    return json_response(200, refreshed if refreshed is not None else result)
 
 
-def parse_weeks(body):
+def analyze_weeks(weeks, history=None):
+    recurring = find_recurring(weeks)
+    if not recurring:
+        return {
+            "recurring": [],
+            "summary": "No task showed up in two or more weeks. Nothing is looping yet.",
+        }
+    judged = judge(recurring, history or {})
+    result = merge(recurring, judged)
+    enrich_history(result["recurring"], history or {})
+    return result
+
+
+def parse_body(body):
     if not body:
         raise ValueError("empty body")
     if isinstance(body, str) and len(body.encode("utf-8")) > MAX_BODY_BYTES:
@@ -156,16 +242,27 @@ def parse_weeks(body):
         raise ValueError("not json")
     if not isinstance(data, dict):
         raise ValueError("not an object")
+    return data
 
-    weeks = data.get("weeks")
+
+def parse_weeks(body):
+    data = parse_body(body)
+    return validate_weeks(data.get("weeks"))
+
+
+def validate_weeks(weeks):
     if not isinstance(weeks, list) or not weeks:
         raise ValueError("weeks missing")
+    if len(weeks) > MAX_WEEKS:
+        raise ValueError("too many weeks")
 
     total_tasks = 0
+    cleaned = []
     for week in weeks:
         if not isinstance(week, dict):
             raise ValueError("week not an object")
-        if not isinstance(week.get("label"), str):
+        label = week.get("label")
+        if not isinstance(label, str):
             raise ValueError("label missing")
         tasks = week.get("tasks")
         if not isinstance(tasks, list):
@@ -176,11 +273,11 @@ def parse_weeks(body):
             if len(task) > MAX_TASK_LEN:
                 raise ValueError("task too long")
         total_tasks += len(tasks)
+        cleaned.append({"label": label, "tasks": tasks})
 
     if total_tasks > MAX_TASKS:
         raise ValueError("too many tasks")
-
-    return weeks
+    return cleaned
 
 
 def normalize(task):
@@ -199,8 +296,6 @@ def same_intent(a_tokens, b_tokens):
     if a_tokens == b_tokens:
         return True
     smaller, larger = sorted((a_tokens, b_tokens), key=len)
-    # A shorter task that is fully contained in a longer one is the same intent
-    # with extra detail, but only trust it when there are at least two shared words.
     if len(smaller) >= 2 and smaller <= larger:
         return True
     overlap = len(a_tokens & b_tokens)
@@ -245,7 +340,6 @@ def find_recurring(weeks):
 
 
 def canonical_text(members):
-    # Prefer the most descriptive wording, breaking ties by first appearance.
     best = members[0]
     for member in members[1:]:
         if len(member["tokens"]) > len(best["tokens"]):
@@ -253,12 +347,47 @@ def canonical_text(members):
     return best["text"]
 
 
-def judge(recurring):
+def history_stats(analyses):
+    stats = {}
+    for analysis in analyses:
+        for item in analysis.get("recurring", []):
+            task = item.get("task")
+            if not isinstance(task, str):
+                continue
+            key = normalize(task)
+            entry = stats.setdefault(key, {"times": 0, "verdicts": []})
+            entry["times"] += 1
+            verdict = item.get("verdict")
+            if verdict in VERDICTS:
+                entry["verdicts"].append(verdict)
+    return stats
+
+
+def enrich_history(results, history):
+    for item in results:
+        entry = history.get(normalize(item["task"]))
+        if entry:
+            item["seen_before"] = entry["times"]
+            item["committed_before"] = "COMMIT" in entry["verdicts"]
+        else:
+            item["seen_before"] = 0
+            item["committed_before"] = False
+
+
+def judge(recurring, history):
     lines = ["Judge these recurring tasks.", ""]
     for item in recurring:
         weeks = item["weeks_seen"]
         unit = "week" if weeks == 1 else "weeks"
-        lines.append("- {} ({} {})".format(item["task"], weeks, unit))
+        line = "- {} ({} {})".format(item["task"], weeks, unit)
+        entry = history.get(normalize(item["task"]))
+        if entry and entry["times"] > 0:
+            last = entry["verdicts"][-1] if entry["verdicts"] else "none"
+            reports = "report" if entry["times"] == 1 else "reports"
+            line += " [flagged in {} earlier {}, last verdict {}]".format(
+                entry["times"], reports, last
+            )
+        lines.append(line)
     prompt = "\n".join(lines)
 
     raw = invoke_model(prompt)
@@ -292,7 +421,7 @@ def call_bedrock(body):
     delay = 0.5
     for attempt in range(3):
         try:
-            response = client().invoke_model(modelId=model_id, body=body)
+            response = bedrock().invoke_model(modelId=model_id, body=body)
             return json.loads(response["body"].read())
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
@@ -309,13 +438,116 @@ def call_bedrock(body):
     raise RuntimeError("bedrock retries exhausted")
 
 
-def client():
-    global _client
-    if _client is None:
+def bedrock():
+    global _bedrock
+    if _bedrock is None:
         import boto3
 
-        _client = boto3.client("bedrock-runtime", region_name="us-east-1")
-    return _client
+        _bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
+    return _bedrock
+
+
+def table():
+    global _table
+    if _table is None:
+        import boto3
+
+        _table = boto3.resource("dynamodb", region_name="us-east-1").Table(TABLE_NAME)
+    return _table
+
+
+def new_board_id():
+    return secrets.token_urlsafe(9)
+
+
+def save_board(board_id, weeks, title):
+    now = datetime.now(timezone.utc).isoformat()
+    table().update_item(
+        Key={"pk": "BOARD#" + board_id, "sk": "META"},
+        UpdateExpression="SET weeks = :w, title = :t, updated = :u, "
+        "created = if_not_exists(created, :u)",
+        ExpressionAttributeValues={":w": weeks, ":t": title, ":u": now},
+    )
+
+
+def put_analysis(board_id, result, source):
+    now = datetime.now(timezone.utc)
+    item = {
+        "pk": "BOARD#" + board_id,
+        "sk": "ANALYSIS#" + now.isoformat(),
+        "recurring": to_dynamo(result.get("recurring", [])),
+        "summary": result.get("summary", ""),
+        "source": source,
+        "created": now.isoformat(),
+        "ttl": int(now.timestamp()) + ANALYSIS_TTL_DAYS * 86400,
+    }
+    table().put_item(Item=item)
+
+
+def load_board(board_id):
+    from boto3.dynamodb.conditions import Key
+
+    response = table().query(
+        KeyConditionExpression=Key("pk").eq("BOARD#" + board_id),
+        ScanIndexForward=False,
+        Limit=MAX_ANALYSES + 1,
+    )
+    items = response.get("Items", [])
+    meta = None
+    analyses = []
+    for item in items:
+        if item["sk"] == "META":
+            meta = item
+        elif item["sk"].startswith("ANALYSIS#"):
+            analyses.append(
+                {
+                    "created": item.get("created", ""),
+                    "source": item.get("source", "manual"),
+                    "recurring": from_dynamo(item.get("recurring", [])),
+                    "summary": item.get("summary", ""),
+                }
+            )
+    if meta is None:
+        return None
+    analyses.sort(key=lambda a: a["created"], reverse=True)
+    return {
+        "id": board_id,
+        "title": meta.get("title", ""),
+        "weeks": from_dynamo(meta.get("weeks", [])),
+        "created": meta.get("created", ""),
+        "updated": meta.get("updated", ""),
+        "analyses": analyses[:MAX_ANALYSES],
+    }
+
+
+def list_active_boards():
+    from boto3.dynamodb.conditions import Attr
+
+    board_ids = []
+    kwargs = {"FilterExpression": Attr("sk").eq("META")}
+    while True:
+        response = table().scan(**kwargs)
+        for item in response.get("Items", []):
+            board_ids.append(item["pk"].split("#", 1)[1])
+        token = response.get("LastEvaluatedKey")
+        if not token:
+            break
+        kwargs["ExclusiveStartKey"] = token
+    return board_ids
+
+
+def to_dynamo(value):
+    return json.loads(json.dumps(value), parse_float=Decimal)
+
+
+def from_dynamo(value):
+    if isinstance(value, list):
+        return [from_dynamo(v) for v in value]
+    if isinstance(value, dict):
+        return {k: from_dynamo(v) for k, v in value.items()}
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    return value
 
 
 def extract_json(raw):
@@ -386,11 +618,64 @@ def default_summary(results):
     return "{} tasks keep looping across your weeks; decide on each one now.".format(len(results))
 
 
+def handle_sqs(event):
+    for record in event.get("Records", []):
+        board_id = None
+        try:
+            board_id = json.loads(record.get("body", "{}")).get("board_id")
+            confront_board(board_id)
+        except Exception:
+            logger.exception("Weekly confront failed for board %s", board_id)
+            raise
+    return {"ok": True}
+
+
+def confront_board(board_id):
+    board = load_board(board_id)
+    if board is None:
+        return
+    weeks = board.get("weeks", [])
+    if not weeks:
+        return
+    history = history_stats(board.get("analyses", []))
+    result = analyze_weeks(weeks, history)
+    put_analysis(board_id, result, "weekly")
+
+
+def run_weekly_sweep():
+    board_ids = list_active_boards()
+    for board_id in board_ids:
+        send_to_queue(board_id)
+    logger.info("Weekly sweep queued %d boards", len(board_ids))
+    return {"queued": len(board_ids)}
+
+
+def send_to_queue(board_id):
+    import boto3
+
+    queue_url = os.environ.get("QUEUE_URL", "")
+    if not queue_url:
+        return
+    boto3.client("sqs", region_name="us-east-1").send_message(
+        QueueUrl=queue_url, MessageBody=json.dumps({"board_id": board_id})
+    )
+
+
 def json_response(status, payload):
     headers = dict(CORS_HEADERS)
     headers.update(SECURITY_HEADERS)
     headers["Content-Type"] = "application/json"
-    return {"statusCode": status, "headers": headers, "body": json.dumps(payload)}
+    return {
+        "statusCode": status,
+        "headers": headers,
+        "body": json.dumps(payload, default=_json_default),
+    }
+
+
+def _json_default(value):
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    raise TypeError(repr(value))
 
 
 class AccessDenied(Exception):
